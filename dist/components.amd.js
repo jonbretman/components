@@ -25,30 +25,16 @@ define(
     var domWrapper = defaultDOMWrapper;
 
     /**
-     * Map of component name -> component Class
-     * @type {Object}
-     */
-    var componentClasses = {};
-
-    /**
      * Map of component id -> component instance
      * @type {Object}
      */
-    var componentInstances = {};
+    var componentInstances = [];
 
     /**
      * Map of event name -> handlers for that event
      * @type {Object}
      */
     var globalHandlers = {};
-
-    /**
-     * Incrementing number used to give each component a unique id.
-     * @type {Number}
-     */
-    var nextComponentId = 1;
-
-    var dataComponentIdAttribute = 'data-component-id';
 
     /**
      * Map of event name -> flag indicating whether or not to use useCapture
@@ -82,7 +68,7 @@ define(
      * @param {*} obj
      * @returns {String}
      */
-    function type (obj) {
+    function type(obj) {
         return Object.prototype.toString.call(obj).match(/\[object (.*?)\]/)[1].toLowerCase();
     }
 
@@ -100,7 +86,7 @@ define(
      * @param fn
      * @returns {Boolean}
      */
-    function isFunction (fn) {
+    function isFunction(fn) {
         return type(fn) === 'function';
     }
 
@@ -109,7 +95,7 @@ define(
      * @param el
      * @returns {Boolean}
      */
-    function isElement (el) {
+    function isElement(el) {
         return el && (el.nodeType === 1 || el.nodeType === 9);
     }
 
@@ -118,7 +104,7 @@ define(
      * @param {*} str
      * @returns {Boolean}
      */
-    function isString (str) {
+    function isString(str) {
         return type(str) === 'string';
     }
 
@@ -126,7 +112,7 @@ define(
      * Returns `this`. Used as a placeholder method.
      * @returns {*}
      */
-    function noop () {
+    function noop() {
         return this;
     }
 
@@ -135,8 +121,8 @@ define(
      * @param {String} str
      * @returns {String}
      */
-    function toCamelCase (str) {
-        return str.replace(/\-(.)/g, function (a,b) {
+    function toCamelCase(str) {
+        return str.replace(/\-(.)/g, function (a, b) {
             return b.toUpperCase();
         });
     }
@@ -164,7 +150,7 @@ define(
      * @param {Object} target
      * @returns {Object}
      */
-    function extend (target) {
+    function extend(target) {
 
         slice.call(arguments, 1).forEach(function (source) {
             if (isObject(source)) {
@@ -185,7 +171,7 @@ define(
      * @param {String} selector
      * @returns {HTMLElement|Null}
      */
-    function closestElement (el, selector) {
+    function closestElement(el, selector) {
 
         while (el && el !== doc.body) {
 
@@ -206,7 +192,7 @@ define(
      * @param {String} selector
      * @returns {Boolean}
      */
-    function matches (el, selector) {
+    function matches(el, selector) {
 
         var method = 'MatchesSelector';
         var matchesSelector = el['webkit' + method] ||
@@ -222,11 +208,10 @@ define(
     /**
      * Returns the nearest Component instance for the passed element.
      * @param {HTMLElement} element
-     * @returns {Component[]}
+     * @returns {HTMLElement[]}
      */
     function parentComponents(element) {
 
-        var id;
         var result = [];
 
         // Quick return for window or document
@@ -236,10 +221,8 @@ define(
 
         while (isElement(element)) {
 
-            id = element.getAttribute(dataComponentIdAttribute);
-
-            if (id && componentInstances[id]) {
-                result.push(componentInstances[id]);
+            if (isComponent(element)) {
+                result.push(element);
             }
 
             element = element.parentElement;
@@ -256,39 +239,18 @@ define(
      */
     function fromElement(el) {
 
-        var name;
-        var id;
-
-        if (!isElement(el)) {
+        if (!isComponent(el)) {
             return null;
         }
 
-        name = el.getAttribute('is');
-        id = el.getAttribute(dataComponentIdAttribute);
-
-        // if no name then it is not a component
-        if (!name) {
-            return null;
-        }
-
-        // if there is an id we must already have a component instance
-        if (id) {
-            return componentInstances[id];
-        }
-
-        if (!componentClasses[name]) {
-            throw Error('No component has been registered with name ' + name);
-        }
-
-        // create a new Component instance
-        return new componentClasses[name](el);
+        return el;
     }
 
     __exports__.fromElement = fromElement;
     /**
      * Given an array of Component instances invokes 'method' on each one.
      * Any additional arguments are passed to the method.
-     * @param {Component[]|Component} components
+     * @param {HTMLElement[]|HTMLElement} components
      * @param {String} method
      */
     function invoke(components, method) {
@@ -348,11 +310,11 @@ define(
 
     /**
      * Returns true if component is an instance of Component.
-     * @param component
+     * @param el
      * @returns {boolean}
      */
-    function isComponent(component) {
-        return component instanceof Component;
+    function isComponent(el) {
+        return isElement(el) && !!el.getAttribute('is');
     }
 
     __exports__.isComponent = isComponent;
@@ -366,8 +328,8 @@ define(
      * If the event is a custom Component event then the target is the component that emitted the event.
      *
      * @param {Event} event
-     * @param {Component[]} [componentsChain] Only used internally when a chain of
-     *                                        Components is already available.
+     * @param {HTMLElement[]} [componentsChain] Only used internally when a chain of
+     *                                          Components is already available.
      */
     function handleEvent(event, componentsChain) {
 
@@ -379,7 +341,7 @@ define(
         var targetIsComponent = isComponent(target);
 
         // if it is a component instance we need the name
-        var targetComponentName = targetIsComponent ? target.name : null;
+        var targetComponentName = targetIsComponent ? target.getAttribute('is') : null;
 
         // this will be the name of the event
         var eventName = event.type;
@@ -471,36 +433,13 @@ define(
     }
 
     __exports__.handleEvent = handleEvent;
-    /**
-     * Parses the given element or the root element and creates Component instances.
-     * @param {HTMLElement} [root]
-     * @returns {Component[]}
-     */
-    function parse(root) {
+    var htmlPrototypes = {
+        'a': HTMLElement.prototype,
+        'form': HTMLFormElement.prototype,
+        'input': HTMLInputElement.prototype,
+        'select': HTMLSelectElement.prototype
+    };
 
-        // allow DOM element or nothing
-        root = isElement(root) ? root : doc.body;
-
-        var els = slice.call(root.querySelectorAll('[is]'));
-        var component;
-
-        // add the root element to the front
-        els.unshift(root);
-
-        return els.reduce(function (result, el) {
-
-            component = fromElement(el);
-
-            if (component) {
-                result.push(component);
-            }
-
-            return result;
-
-        }, []);
-    }
-
-    __exports__.parse = parse;
     /**
      * Registers a new Component.
      * @param {String|Object} name
@@ -509,49 +448,38 @@ define(
      */
     function register(name, impl) {
 
-        var F, Surrogate;
-
-        if (isObject(name)) {
-            impl = name;
-            name = impl.name;
-        }
-
-        if (!isString(name) || !name) {
-            throw Error('"' + name + '" is not a valid component name');
-        }
-
-        if (componentClasses[name]) {
-            throw Error('A component called ' + name + ' already exists');
-        }
+        var definition = {};
+        var htmlProto, proto;
 
         impl = impl || {};
 
-        F = function () {
-            Component.apply(this, arguments);
-        };
+        if ('extends' in impl) {
+            htmlProto = htmlPrototypes[impl.extends];
+            definition.extends = impl.extends;
+        }
+        else {
+            htmlProto = HTMLElement.prototype;
+            definition.extends = 'div';
+        }
 
-        Surrogate = function () {};
-        Surrogate.prototype = Component.prototype;
-        F.prototype = new Surrogate();
-        F.prototype.name = name;
+        proto = Object.create(htmlProto);
 
-        extend(F.prototype, impl);
+        Object.keys(customElementBase).forEach(function (key) {
+            proto[key] = customElementBase[key];
+        });
 
-        componentClasses[name] = F;
-        return F;
+        Object.keys(impl).forEach(function (key) {
+            if (key !== 'extends') {
+                proto[key] = impl[key];
+            }
+        });
+
+        definition.prototype = proto;
+
+        return document.registerElement(name, definition);
     }
 
     __exports__.register = register;
-    /**
-     * Un-registers a Component class and destroys any existing instances.
-     * @param {string} name
-     */
-    function unregister(name) {
-        destroy(name);
-        componentClasses[name] = null;
-    }
-
-    __exports__.unregister = unregister;
     /**
      *
      * @param {string} method
@@ -603,7 +531,6 @@ define(
             domWrapper = options.domWrapper;
         }
 
-        parse();
         bindEvents();
     }
 
@@ -615,17 +542,13 @@ define(
     function reset() {
 
         // destroy any component instances
-        for (var key in componentInstances) {
-            if (componentInstances[key]) {
-                componentInstances[key].destroy();
-            }
-        }
+        slice.call(componentInstances).forEach(function (instance) {
+            instance.destroy();
+        });
 
         // reset state
         domQuery = defaultDOMQuery;
         domWrapper = defaultDOMWrapper;
-        componentClasses = {};
-        componentInstances = {};
 
         // unbind all event handlers
         unbindEvents();
@@ -646,16 +569,9 @@ define(
      * @returns {Array}
      */
     function getInstancesOf(name) {
-
-        var result = [];
-
-        for (var key in componentInstances) {
-            if (componentInstances[key] && componentInstances[key].name === name) {
-                result.push(componentInstances[key]);
-            }
-        }
-
-        return result;
+        return componentInstances.filter(function (instance) {
+            return instance.getAttribute('is') === name;
+        });
     }
 
     __exports__.getInstancesOf = getInstancesOf;
@@ -663,7 +579,7 @@ define(
      * @param {string} name
      */
     function destroy(name) {
-        getInstancesOf(name).forEach(function(instance) {
+        getInstancesOf(name).forEach(function (instance) {
             instance.destroy();
         });
 
@@ -671,62 +587,46 @@ define(
     }
 
     __exports__.destroy = destroy;
-    /**
-     * Creates a new Component
-     * @param element
-     * @param options
-     * @constructor
-     */
-    function Component (element, options) {
+    var customElementBase = {
 
-        if (arguments.length === 1 && isObject(element)) {
-            options = element;
-            element = this.createRootElement();
-        }
+        createdCallback: function () {
 
-        if (!arguments.length) {
-            element = this.createRootElement();
-        }
+            componentInstances.push(this);
 
-        this._id = nextComponentId++;
-        this._events = [];
-        this.el = element;
+            this._events = [];
+            this.el = this;
 
-        // Convenience for accessing this components root element wrapped
-        // in whatever `domWrapper` returns. Not used internally.
-        this.$el = domWrapper([this.el]);
+            // Convenience for accessing this components root element wrapped
+            // in whatever `domWrapper` returns. Not used internally.
+            this.$el = domWrapper([this]);
 
-        // Options are built from optional default options - this can
-        // be a property or a function that returns an object, the
-        // element attributes, and finally any options passed to the constructor
-        this.options = extend(
-            {},
-            isFunction(this.defaultOptions) ? this.defaultOptions() : this.defaultOptions,
-            parseAttributes(this.el),
-            options
-        );
+            // Options are built from optional default options - this can
+            // be a property or a function that returns an object, the
+            // element attributes, and finally any options passed to the constructor
+            this.opts = extend(
+                {},
+                isFunction(this.defaultOptions) ? this.defaultOptions() : this.defaultOptions,
+                parseAttributes(this)
+            );
 
-        if (this.options.template) {
-            this.template = this.options.template;
-        }
+            this.init();
+            this.setupEvents(this.registerEvent.bind(this));
+            this.render();
+        },
 
-        element.setAttribute('is', this.name);
-        element.setAttribute(dataComponentIdAttribute, this._id);
+        attachedCallback: function () {
+            this.onInsert();
+            this.emit('inserted');
+        },
 
-        // store this instance
-        componentInstances[this._id] = this;
+        detachedCallback: function () {
+            this.onRemove();
+        },
 
-        this.init();
-        this.setupEvents(this.registerEvent.bind(this));
-        this.render();
-    }
-
-    __exports__.Component = Component;
-    Component.prototype = {
-
-        name: '',
-
-        tagName: 'div',
+        setOptions: function (options) {
+            extend(this.opts, options);
+            return this;
+        },
 
         /**
          * If set to a function it will be called with the
@@ -737,11 +637,9 @@ define(
         /**
          * The init function will be called when the Component is created.
          * This maybe be through the parsing of DOM or through directly creating the component.
-         * @returns {Component}
+         * @returns {HTMLElement}
          */
-        init: function () {
-            return this;
-        },
+        init: noop,
 
         /**
          * Sets up any events required on the component, called during component initialisation.
@@ -756,7 +654,7 @@ define(
 
         /**
          * Renders the contents of the component into the root element.
-         * @returns {Component}
+         * @returns {HTMLElement}
          */
         render: function () {
             var template = this.template;
@@ -764,19 +662,9 @@ define(
             var templateIsString = isString(template);
 
             if (templateIsFunction || templateIsString) {
-                this.el.innerHTML = templateIsFunction ? template.call(this, this) : template;
-                this.parse();
+                this.innerHTML = templateIsFunction ? template.call(this, this) : template;
             }
 
-            return this;
-        },
-
-        /**
-         * Parses this Component and instantiates any child components
-         * @returns {Component}
-         */
-        parse: function () {
-            parse(this.el);
             return this;
         },
 
@@ -799,11 +687,11 @@ define(
         /**
          * Inserts this component before another element.
          * @param {HTMLElement} el the element to go before
-         * @returns {Component}
+         * @returns {HTMLElement}
          */
-        insertBefore: function(el) {
+        insertBefore: function (el) {
 
-            el = isElement(el) ? el : isComponent(el) ? el.el : null;
+            el = isElement(el) ? el : null;
 
             if (!el) {
                 return this;
@@ -811,10 +699,7 @@ define(
 
             var parent = el.parentElement;
             if (parent) {
-                this.beforeInsert();
-                parent.insertBefore(this.el, el);
-                this.onInsert();
-                this.emit('inserted');
+                parent.insertBefore(this, el);
             }
 
             return this;
@@ -823,11 +708,11 @@ define(
         /**
          * Inserts this component after another element.
          * @param {HTMLElement} el the element to go after
-         * @returns {Component}
+         * @returns {HTMLElement}
          */
-        insertAfter: function(el) {
+        insertAfter: function (el) {
 
-            el = isElement(el) ? el : isComponent(el) ? el.el : null;
+            el = isElement(el) ? el : null;
 
             if (!el) {
                 return this;
@@ -837,10 +722,7 @@ define(
             // null case automatically handled
             var parent = el.parentNode;
             if (parent) {
-                this.beforeInsert();
-                parent.insertBefore(this.el, el.nextSibling);
-                this.onInsert();
-                this.emit('inserted');
+                parent.insertBefore(this, el.nextSibling);
             }
 
             return this;
@@ -849,27 +731,17 @@ define(
         /**
          * Appends this Component to an element.
          * @param {HTMLElement} el
-         * @returns {Component}
+         * @returns {HTMLElement}
          */
         appendTo: function (el) {
 
-            el = isElement(el) ? el : isComponent(el) ? el.el : null;
-
-            if (!el) {
+            if (!isElement(el)) {
                 return this;
             }
 
-            this.beforeInsert();
-            el.appendChild(this.el);
-            this.onInsert();
-            this.emit('inserted');
+            el.appendChild(this);
             return this;
         },
-
-        /**
-         * Called before the Component in inserted into the DOM.
-         */
-        beforeInsert: noop,
 
         /**
          * Called after the Component is inserted into the DOM.
@@ -878,40 +750,33 @@ define(
 
         /**
          * Removes this component from the DOM.
-         * @returns {Component}
+         * @returns {HTMLElement}
          */
-        remove: function (chain) {
+        remove: function () {
 
             // cannot be removed if no element or no parent element
-            if (!this.el || !this.el.parentElement) {
+            if (!this.parentElement) {
                 return this;
             }
 
-            // get the chain of parent components if not passed
-            chain = chain || parentComponents(this.el, true);
+            this.beforeRemove();
+            invoke(this.find('[is]'), 'beforeRemove');
 
-            // get all the child Components and invoke beforeRemove
-            var children = parse(this.el);
-            invoke(children, 'beforeRemove');
+            this.emit('remove');
 
-            // actually remove the element
-            this.el.parentElement.removeChild(this.el);
-
-            // invoke onRemove and emit remove event
-            invoke(children, 'onRemove');
-            this.emit('remove', null, chain);
+            // remove the element
+            this.parentElement.removeChild(this);
             return this;
         },
 
-        /**
-         * Called before this Component is removed from the DOM.
-         */
         beforeRemove: noop,
 
         /**
          * Called after this Component is removed from the DOM.
          */
         onRemove: noop,
+
+        beforeDestroy: noop,
 
         /**
          * Removes this Component from the DOM and deletes the instance from the instances pool.
@@ -920,48 +785,18 @@ define(
          * @returns {null}
          */
         destroy: function () {
+            var thisEl = this;
 
-            var chain;
+            this.beforeDestroy();
+            invoke(this.find('[is]'), 'beforeDestroy');
 
-            // must have already been destroyed
-            if (!componentInstances[this._id]) {
-                return null;
-            }
+            this.remove();
 
-            // get the parent chain of Components
-            chain = parentComponents(this.el, true);
-
-            // invoke remove passing the chain
-            this.remove(chain);
-
-            // invoke before beforeDestroy on all child Components
-            invoke(parse(this.el), 'beforeDestroy');
-
-            // emit the destroy event passing the chain
-            this.emit('destroy', null, chain);
-
-            // destroy everything
-            this.el = null;
-
-            // use null assignment instead of delete
-            // as delete has performance implications
-            componentInstances[this._id] = null;
+            componentInstances = componentInstances.filter(function (el) {
+                return el !== thisEl;
+            });
 
             return null;
-        },
-
-        /**
-         * Called before this Component is destroyed.
-         */
-        beforeDestroy: noop,
-
-        /**
-         * In the case that this Component is created directly by invoking the constructor with
-         * no element this method will be called to create the root element.
-         * @returns {HTMLElement}
-         */
-        createRootElement: function () {
-            return doc.createElement(this.tagName);
         },
 
         /**
@@ -971,13 +806,13 @@ define(
          * @returns {Array}
          */
         find: function (selector) {
-            return domWrapper(domQuery(this.el, selector));
+            return domWrapper(domQuery(this, selector));
         },
 
         /**
          * Returns the first component with 'name' within this Component or null.
          * @param {String} name
-         * @returns {Component|Null}
+         * @returns {HTMLElement|Null}
          */
         findComponent: function (name) {
             return fromElement(
@@ -989,7 +824,7 @@ define(
          * Returns all components with 'name' within this component.
          * If no components exist with this name an empty array will be returned.
          * @param name
-         * @returns {Component[]}
+         * @returns {HTMLElement[]}
          */
         findComponents: function (name) {
             return map.call(
@@ -1005,7 +840,7 @@ define(
          * @param {string} event
          * @param {string|function} selector
          * @param {function} [handler]
-         * @returns {Component}
+         * @returns {HTMLElement}
          */
         registerEvent: function (event, selector, handler) {
 
@@ -1035,7 +870,7 @@ define(
          * @param {String} [selector] - the selector of the object to release the event
          * @param {Function} [handler] - the handler to release off the object
          */
-        releaseEvent: function(event, selector, handler) {
+        releaseEvent: function (event, selector, handler) {
 
             if (isFunction(selector) && !handler) {
                 handler = selector;
@@ -1050,7 +885,7 @@ define(
                 selector = null;
             }
 
-            this._events = filter.call(this._events, function(ev) {
+            this._events = filter.call(this._events, function (ev) {
                 var eventName = ev[0];
                 var eventSelector = ev[1];
                 var eventHandler = ev[2];
@@ -1073,7 +908,7 @@ define(
          * need to listen to events that happen outside this component.
          * @param {String} event
          * @param {Function} fn
-         * @returns {Component}
+         * @returns {HTMLElement}
          */
         setGlobalHandler: function (event, fn) {
             globalHandlers[event] = globalHandlers[event] || [];
@@ -1090,7 +925,7 @@ define(
          * Release a global event handler that was previously set with setGlobalHandler().
          * @param {String} event
          * @param {Function} fn
-         * @returns {Component}
+         * @returns {HTMLElement}
          */
         releaseGlobalHandler: function (event, fn) {
 
